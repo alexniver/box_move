@@ -9,3 +9,4 @@ bevy_quinnet = "0.8.0"
 serde = {version="1.0.203", features = ["derive"]}
 
 clap = {version="4.5.7", features = ["derive"]}
+rand = "0.8.5"

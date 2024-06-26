@@ -14,7 +14,7 @@ use bevy_quinnet::{
 
 use crate::{
     consts::{LOCAL_BIND_IP, SERVER_HOST, SERVER_PORT},
-    protocol::ServerMessage,
+    protocol::{ClientMessage, ServerMessage},
 };
 
 pub(crate) fn run(host: IpAddr) {
@@ -28,6 +28,7 @@ pub(crate) fn run(host: IpAddr) {
         .add_plugins(QuinnetClientPlugin::default())
         .add_systems(Startup, (setup, start_connection))
         .add_systems(Update, handle_server_message)
+        .add_systems(Update, handle_move)
         // .add_systems(FixedUpdate, box_move)
         .run();
 }
@@ -63,18 +64,17 @@ fn handle_server_message(
         .try_receive_message::<ServerMessage>()
     {
         match message {
-            ServerMessage::InitClient { client_id } => connection_info.client_id = Some(client_id),
+            ServerMessage::InitClient { client_id } => {
+                connection_info.client_id = Some(client_id);
+            }
             ServerMessage::SpawnRect { entity, pos } => {
                 let client_entity = commands
-                    .spawn((
-                        MaterialMesh2dBundle {
-                            mesh: bevy::sprite::Mesh2dHandle(meshs.add(Rectangle::new(50., 50.))),
-                            material: materials.add(Color::BLUE),
-                            transform: Transform::default().with_translation(pos),
-                            ..default()
-                        },
-                        Box,
-                    ))
+                    .spawn((MaterialMesh2dBundle {
+                        mesh: bevy::sprite::Mesh2dHandle(meshs.add(Rectangle::new(50., 50.))),
+                        material: materials.add(Color::BLUE),
+                        transform: Transform::default().with_translation(pos),
+                        ..default()
+                    },))
                     .id();
                 entity_map.map.insert(entity, client_entity);
             }
@@ -83,36 +83,40 @@ fn handle_server_message(
                 let mut t = query_rect.get_mut(entity).unwrap();
                 t.translation = pos;
             }
+            ServerMessage::DespawnRect { entity } => {
+                let entity = *entity_map.map.get(&entity).unwrap();
+                commands.entity(entity).despawn();
+            }
         }
     }
 }
 
-fn box_move(
-    mut query_box: Query<&mut Transform, With<Box>>,
+fn handle_move(
     input: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
+    conn_info: Res<ConnectionInfo>,
+    client: Res<QuinnetClient>,
 ) {
-    let mut t = query_box.single_mut();
-    let speed = SPEED * time.delta_seconds();
-    let mut value = Vec3::ZERO;
+    let mut direction = crate::protocol::Direction::None;
     if input.pressed(KeyCode::KeyW) {
-        value.y += speed
+        direction = crate::protocol::Direction::Up;
     }
-    if input.pressed(KeyCode::KeyS) {
-        value.y -= speed
-    }
-    if input.pressed(KeyCode::KeyA) {
-        value.x -= speed
-    }
-    if input.pressed(KeyCode::KeyD) {
-        value.x += speed
-    }
-    t.translation += value;
-}
 
-#[derive(Component)]
-struct Box;
-const SPEED: f32 = 500.;
+    if input.pressed(KeyCode::KeyS) {
+        direction = crate::protocol::Direction::Down;
+    }
+
+    if input.pressed(KeyCode::KeyA) {
+        direction = crate::protocol::Direction::Left;
+    }
+
+    if input.pressed(KeyCode::KeyD) {
+        direction = crate::protocol::Direction::Right;
+    }
+    client
+        .connection()
+        .try_send_message(ClientMessage::Direction { direction })
+}
 
 #[derive(Debug, Resource)]
 struct ConnectionInfo {

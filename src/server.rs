@@ -9,6 +9,7 @@ use bevy_quinnet::server::{
 };
 use bevy_quinnet::shared::channels::{ChannelId, ChannelsConfiguration};
 use bevy_quinnet::shared::ClientId;
+use rand::Rng;
 
 use crate::consts::SERVER_HOST;
 use crate::protocol::{ClientMessage, ServerMessage};
@@ -24,7 +25,9 @@ pub(crate) fn run() {
             Update,
             (
                 handle_connection,
+                handle_connection_lost,
                 handle_connection_lost.after(handle_connection),
+                handle_client_message,
             ),
         )
         .add_systems(FixedUpdate, cube_move)
@@ -33,6 +36,7 @@ pub(crate) fn run() {
 
 #[derive(Debug)]
 struct Player {
+    entity: Option<Entity>,
     direction: crate::protocol::Direction,
 }
 
@@ -53,7 +57,7 @@ struct Client {
 
 #[derive(Bundle)]
 struct RectBundle {
-    rect: Rect,
+    transform: Transform,
     client: Client,
 }
 
@@ -73,41 +77,60 @@ fn handle_connection(
     mut commands: Commands,
     mut connection_events: EventReader<ConnectionEvent>,
     mut players: ResMut<Players>,
-    mut server: ResMut<QuinnetServer>,
+    server: Res<QuinnetServer>,
+    player_query: Query<(Entity, &Transform), With<Client>>,
 ) {
     for client in connection_events.read() {
+        let pos = Vec3::new(
+            rand::thread_rng().gen_range(-100.0..100.),
+            rand::thread_rng().gen_range(-100.0..100.),
+            0.,
+        );
         players.map.insert(
             client.id,
             Player {
+                entity: None,
                 direction: crate::protocol::Direction::None,
             },
         );
+
+        for (entity, t) in player_query.iter() {
+            server
+                .endpoint()
+                .send_message(
+                    client.id,
+                    ServerMessage::SpawnRect {
+                        entity,
+                        pos: t.translation,
+                    },
+                )
+                .unwrap();
+        }
+
         let entity = commands
             .spawn(RectBundle {
-                rect: Rect {
-                    transform: Transform::default(),
-                },
+                transform: Transform::default().with_translation(pos),
                 client: Client {
                     client_id: client.id,
                 },
             })
             .id();
+        players.map.get_mut(&client.id).unwrap().entity = Some(entity);
+
+        server
+            .endpoint()
+            .send_message(
+                client.id,
+                ServerMessage::InitClient {
+                    client_id: client.id,
+                },
+            )
+            .unwrap();
 
         server.endpoint().try_send_group_message_on(
             players.map.keys(),
             ChannelId::default(),
-            ServerMessage::InitClient {
-                client_id: client.id,
-            },
-        );
-
-        server.endpoint().try_send_group_message_on(
-            players.map.keys(),
-            ChannelId::default(),
-            ServerMessage::SpawnRect {
-                entity,
-                pos: Vec3::ZERO,
-            },
+            ServerMessage::SpawnRect { entity, pos },
         );
     }
 }
@@ -115,9 +138,19 @@ fn handle_connection(
 fn handle_connection_lost(
     mut connection_lost_events: EventReader<ConnectionLostEvent>,
     mut players: ResMut<Players>,
+    server: Res<QuinnetServer>,
 ) {
     for client in connection_lost_events.read() {
-        players.map.remove(&client.id);
+        let player = players.map.remove(&client.id);
+        if let Some(player) = player {
+            if let Some(entity) = player.entity {
+                server.endpoint().try_send_group_message_on(
+                    players.map.keys(),
+                    ChannelId::default(),
+                    ServerMessage::DespawnRect { entity },
+                )
+            }
+        }
     }
 }
 
@@ -154,15 +187,17 @@ fn cube_move(
             crate::protocol::Direction::Left => value.x -= speed,
             crate::protocol::Direction::Right => value.x += speed,
         }
-        t.translation += value;
 
-        server.endpoint().try_send_group_message_on(
-            players.map.keys(),
-            ChannelId::default(),
-            ServerMessage::RectMove {
-                entity,
-                pos: t.translation,
-            },
-        );
+        if value != Vec3::ZERO {
+            t.translation += value;
+            server.endpoint().try_send_group_message_on(
+                players.map.keys(),
+                ChannelId::default(),
+                ServerMessage::RectMove {
+                    entity,
+                    pos: t.translation,
+                },
+            );
+        }
     }
 }

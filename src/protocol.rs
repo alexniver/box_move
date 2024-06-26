@@ -22,4 +22,5 @@ pub(crate) enum ServerMessage {
     InitClient { client_id: ClientId },
     SpawnRect { entity: Entity, pos: Vec3 },
     RectMove { entity: Entity, pos: Vec3 },
+    DespawnRect { entity: Entity },
 }
