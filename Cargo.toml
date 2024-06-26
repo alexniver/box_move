@@ -1,0 +1,11 @@
+[package]
+name = "box_move_s_c"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.13.2"
+bevy_quinnet = "0.8.0"
+serde = {version="1.0.203", features = ["derive"]}
+
+clap = {version="4.5.7", features = ["derive"]}
