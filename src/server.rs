@@ -82,14 +82,33 @@ fn handle_connection(
                 direction: crate::protocol::Direction::None,
             },
         );
-        commands.spawn(RectBundle {
-            rect: Rect {
-                transform: Transform::default(),
-            },
-            client: Client {
+        let entity = commands
+            .spawn(RectBundle {
+                rect: Rect {
+                    transform: Transform::default(),
+                },
+                client: Client {
+                    client_id: client.id,
+                },
+            })
+            .id();
+
+        server.endpoint().try_send_group_message_on(
+            players.map.keys(),
+            ChannelId::default(),
+            ServerMessage::InitClient {
                 client_id: client.id,
             },
-        });
+        );
+
+        server.endpoint().try_send_group_message_on(
+            players.map.keys(),
+            ChannelId::default(),
+            ServerMessage::SpawnRect {
+                entity,
+                pos: Vec3::ZERO,
+            },
+        );
     }
 }
 

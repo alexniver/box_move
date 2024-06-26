@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use bevy::{math::vec3, prelude::*, sprite::MaterialMesh2dBundle, utils::HashMap};
 use bevy_quinnet::{
     client::{
@@ -15,10 +17,13 @@ use crate::{
     protocol::ServerMessage,
 };
 
-pub(crate) fn run() {
+pub(crate) fn run(host: IpAddr) {
     App::new()
         .init_resource::<EntityMap>()
-        .init_resource::<ConnectionInfo>()
+        .insert_resource(ConnectionInfo {
+            client_id: None,
+            host,
+        })
         .add_plugins(DefaultPlugins)
         .add_plugins(QuinnetClientPlugin::default())
         .add_systems(Startup, (setup, start_connection))
@@ -34,15 +39,10 @@ fn setup(mut commands: Commands) {
     });
 }
 
-fn start_connection(mut client: ResMut<QuinnetClient>) {
+fn start_connection(mut client: ResMut<QuinnetClient>, conn_info: Res<ConnectionInfo>) {
     client
         .open_connection(
-            ClientEndpointConfiguration::from_ips(
-                SERVER_HOST.parse().unwrap(),
-                SERVER_PORT,
-                LOCAL_BIND_IP,
-                0,
-            ),
+            ClientEndpointConfiguration::from_ips(conn_info.host, SERVER_PORT, LOCAL_BIND_IP, 0),
             CertificateVerificationMode::SkipVerification,
             ChannelsConfiguration::from_types(vec![ChannelType::OrderedReliable]).unwrap(),
         )
@@ -114,8 +114,9 @@ fn box_move(
 struct Box;
 const SPEED: f32 = 500.;
 
-#[derive(Debug, Resource, Default)]
+#[derive(Debug, Resource)]
 struct ConnectionInfo {
+    host: IpAddr,
     client_id: Option<ClientId>,
 }
 
